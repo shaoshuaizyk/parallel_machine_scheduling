@@ -37,7 +37,7 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
     unloading_duration = 5  # unloading duration for each job
     P = np.array([[[abs(job_xs[i] - depot_xs[d1]) + abs(job_ys[i] - depot_ys[d1]) + loading_duration + abs(job_xs[i] - depot_xs[d2]) + abs(job_ys[i] - depot_ys[d2]) + unloading_duration if i != 0 and i != N+1 else 0 for d2 in range(D) ] for d1 in range(D)] for i in jobs]) # Manhattan distances between depots and jobs
 
-    BigM = 100000  # large M
+    BigM = N*length*2  # large M
 
     model = gp.Model("Strawberry_Pickup")
 
@@ -54,7 +54,7 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
     # Objective: Minimize the maximum completion time
     # Completion time of job i on machine k from depot d is s[i,k,d] + P[i,d,d'] (depending on next job/depot).
     # To handle min max, introduce a variable T representing the makespan and minimize T.
-    T = model.addVar(vtype=GRB.INTEGER, name="T", lb=0.0)
+    T = model.addVar(vtype=GRB.INTEGER, name="makespan", lb=0.0)
 
     model.setObjective(T, GRB.MINIMIZE)
 
@@ -117,7 +117,7 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
     # For simplicity, assume you know P[i,d,d'] and apply constraints for all d,d' with big-M:
     for k in machines:
         for i in jobs[1:-1]:
-            for j in jobs[1:-1]:
+            for j in jobs[1:]:
                 if i != j:
                     for d_in in depots:
                         for d_out in depots:
@@ -131,7 +131,7 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
     # 6) Availability constraints:
     # s[i,k,d] >= A_k + t_i * v[i,k,d]
     for k in machines:
-        for i in jobs[1:-1]:
+        for i in jobs[1:]:
             for d in depots:
                 model.addConstr(s[i,k,d] >= A_k[k], f"avail_{i}_{k}_{d}")
                 model.addConstr(s[i,k,d] >= Rt[i], f"release_{i}_{k}_{d}")
@@ -139,10 +139,10 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
     # 7) Objective linking:
     # T >= s[i,k,d] + P[i,d,d'] * v[i,k,d] for all i,k,d,d'
     for k in machines:
-        for i in jobs[1:-1]:
-            for d_start in depots:
-                for d_end in depots:
-                    model.addConstr(T >= s[i,k,d_start] + P[i,d_start,d_end]*v[i,k,d_start], f"makespan_{i}_{k}_{d_start}_{d_end}")
+        # for i in jobs[1:-1]:
+        for d in depots:
+            # for d_end in depots:
+            model.addConstr(T >= s[N+1,k,d], f"makespan_{k}_{d}")
 
     # Tuning gurobi parameters
     model.Params.Heuristics = 0.707
@@ -173,8 +173,10 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
                                 end_d = None
                                 for d in depots:
                                     if v[i,k,d].X > 0.9:
+                                        assert start_d is None, "Multiple start depots found"
                                         start_d = d
                                     if v[j,k,d].X > 0.9:
+                                        assert end_d is None, "Multiple end depots found"
                                         end_d = d
                                 print(f"Job {i} at {s[i,k,start_d].X}s in depot {start_d} -> Job {j} at {s[i,k,start_d].X + P[i,start_d,end_d]}s in depot {end_d}")
                             i = j
@@ -193,7 +195,7 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
                         if v[i,k,d].X > 0.9:
                             plt.plot([depot_xs[d], job_xs[i]], [depot_ys[d], job_ys[i]], color='red')
             plt.show()
-        if video: # Generate a video showing the process of machine moving from the start depot to the job place at Manhattan distance, loading the fruits, and moving back to the end depot. Show the job position when it is released, remove the job after it is loading on the machine. Show the previous a few seconds history trajectory of the machine. Save the video as mp4.
+        if video: # TODO: Generate a video showing the process of machine moving from the start depot to the job place at Manhattan distance, loading the fruits, and moving back to the end depot. Show the job position when it is released, remove the job after it is loading on the machine. Show the previous a few seconds history trajectory of the machine. Save the video as mp4.
             import matplotlib.pyplot as plt
             import matplotlib.animation as animation
             fig, ax = plt.subplots(figsize=(10,10))
