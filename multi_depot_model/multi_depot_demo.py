@@ -2,6 +2,114 @@ import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 
+import matplotlib.pyplot as plt
+
+def plot_gantt(model, E, v, s, P, machines, jobs, depots, N, T_var):
+    """
+    model   : your gurobipy model (for checking status, if needed)
+    E       : E[i,j,k] variables -> job i immediately followed by j on machine k
+    v       : v[i,k,d] variables -> job i on machine k departing from depot d
+    s       : s[i,k,d] variables -> start time of job i on machine k from depot d
+    P       : P[i,d_in,d_out] -> travel/load/unload time from i in d_in to next job i in d_out
+    machines: list of machine indices
+    jobs    : list of job indices (0 = dummy start, N+1 = dummy end)
+    depots  : list of depot indices
+    N       : number of real jobs
+    T_var   : the gurobi var for the makespan (T)
+    """
+
+    # Only proceed if model has a feasible (or optimal) solution:
+    if model.SolCount == 0:
+        print("No feasible solution found; cannot plot Gantt chart.")
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    # Distinguish real jobs from dummy jobs:
+    dummy_start = 0
+    dummy_end = N+1
+
+    # We'll just color-code each machine differently.
+    color_map = plt.cm.get_cmap("tab20", len(machines))
+
+    # On the Gantt chart, the y-axis will be the machine index
+    # and the x-axis will represent time.
+    for k_idx, k in enumerate(machines):
+        machine_color = color_map(k_idx)
+        
+        # Start from the dummy start job (0) and follow the chain until dummy end (N+1)
+        current_job = dummy_start
+        
+        while current_job != dummy_end:
+            # Find the next job j where E[current_job, j, k] = 1
+            next_job = None
+            for j in jobs:
+                if j != current_job and E[current_job, j, k].X > 0.5:
+                    next_job = j
+                    break
+            
+            if next_job is None:
+                # Means we didn't find a successor for current_job on machine k
+                # Possibly something incomplete or dummy_end is next.
+                break
+
+            # Find which depot d_in was chosen for current_job,
+            # and which depot d_out is chosen for next_job.
+            chosen_d_in = None
+            chosen_d_out = None
+            for d in depots:
+                if v[current_job, k, d].X > 0.5:
+                    chosen_d_in = d
+                    break
+            for d in depots:
+                if v[next_job, k, d].X > 0.5:
+                    chosen_d_out = d
+                    break
+
+            # If the current job is not the dummy end, we can plot the bar for it
+            if current_job != dummy_end:
+                start_time = s[current_job, k, chosen_d_in].X
+                # The time from current_job to next_job is stored in P[current_job, d_in, d_out]
+                finish_time = start_time + P[current_job, chosen_d_in, chosen_d_out]
+
+                # Draw a bar on the Gantt chart from (start_time) to (finish_time)
+                ax.barh(
+                    y=k_idx,               # the "machine row" on the chart
+                    width=finish_time - start_time,
+                    left=start_time,
+                    height=0.4,
+                    align='center',
+                    color=machine_color,
+                    edgecolor='black'
+                )
+
+                # Optionally label the bar with the job index (skip if it's a dummy)
+                if current_job not in [dummy_start, dummy_end]:
+                    ax.text(
+                        (start_time + finish_time) / 2.0,
+                        k_idx,
+                        f"Job {current_job}",
+                        ha='center',
+                        va='center',
+                        color='black',
+                        fontsize=9
+                    )
+
+            # Move on
+            current_job = next_job
+
+    # Some final cosmetics:
+    ax.set_yticks(range(len(machines)))
+    ax.set_yticklabels([f"Machine {k}" for k in machines])
+    ax.invert_yaxis()   # so machine 0 is at the top, if you prefer
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Machine")
+    # If T_var is the makespan variable, you can show it in the title:
+    ax.set_title(f"Gantt Chart (makespan = {T_var.X:.2f})")
+
+    plt.tight_layout()
+    plt.show()
+
 def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_sol=True, visualize=False, video=False):
     # Define the region of the strawberry field
     length = length
@@ -151,6 +259,26 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
     # Solve
     model.optimize()
 
+    # Right after model.optimize():
+    if model.status == GRB.OPTIMAL or model.status == GRB.TIME_LIMIT or model.status == GRB.INTERRUPTED:
+        print("Optimal solution found with makespan:", T.X)
+        ...
+        # (Your existing printing of routes, etc.)
+
+        # --- Now call the Gantt chart function ---
+        plot_gantt(
+            model=model,
+            E=E,
+            v=v,
+            s=s,
+            P=P,
+            machines=machines,
+            jobs=jobs,
+            depots=depots,
+            N=N,
+            T_var=T
+        )
+        
     # Extract solution
     if model.status == GRB.OPTIMAL or model.status == GRB.TIME_LIMIT or model.status == GRB.INTERRUPTED:
         if print_sol:
@@ -223,4 +351,4 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
         raise Exception("No solution found")
 
 if __name__ == "__main__":
-    multi_depot_demo()
+    multi_depot_demo(video=False)
