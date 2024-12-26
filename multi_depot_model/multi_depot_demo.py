@@ -20,6 +20,7 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
     seed = seed
     rng = np.random.default_rng(seed)
     Rt = rng.integers(0, length, N) # release times for jobs (for i=0 and i=N+1 could be 0)
+    Rt = np.sort(Rt)
     Rt = np.insert(Rt, 0, 0)  # start job
     Rt = np.append(Rt, 0)  # end job
     A_k = rng.integers(0, length//5, M_num) # availability times for machines
@@ -139,14 +140,15 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
     # 7) Objective linking:
     # T >= s[i,k,d] + P[i,d,d'] * v[i,k,d] for all i,k,d,d'
     for k in machines:
-        # for i in jobs[1:-1]:
-        for d in depots:
-            # for d_end in depots:
-            model.addConstr(T >= s[N+1,k,d], f"makespan_{k}_{d}")
+        for i in jobs[1:]:
+            for d in depots:
+                model.addConstr(T >= s[i,k,d], f"makespan_{i}_{k}_{d}")
 
     # Tuning gurobi parameters
-    model.Params.Heuristics = 0.707
-    model.Params.MIPFocus = 2
+    model.Params.Heuristics = 0.707 # Set the heuristic parameter to 0.707
+    # model.Params.MIPFocus = 2 # Set the MIP focus to 2 for more aggressive cut
+    # model.Params.NoRelHeurTime = 60 # Set the time limit for heuristic to 100 seconds
+    #model.Params.NoRelHeurWork = 1e12 # Set the work limit for heuristic to 1e6 iterations
 
     # Solve
     model.optimize()
