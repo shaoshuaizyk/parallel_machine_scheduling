@@ -19,7 +19,7 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
     # Generate random call places and correspoding release times
     seed = seed
     rng = np.random.default_rng(seed)
-    Rt = rng.integers(0, length, N) # release times for jobs (for i=0 and i=N+1 could be 0)
+    Rt = rng.integers(0, length*N, N) # release times for jobs (for i=0 and i=N+1 could be 0)
     Rt = np.sort(Rt)
     Rt = np.insert(Rt, 0, 0)  # start job
     Rt = np.append(Rt, 0)  # end job
@@ -162,7 +162,7 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
             print(f"Availability times: {A_k}")
             print(f"Job coordinates: {list(zip(job_xs[1:-1], job_ys[1:-1]))}")
             print(f"Depot coordinates: {list(zip(depot_xs, depot_ys))}")
-            print(f"Job costs: {P[1:-1, :, :]}")
+            print(f"Job costs: {[tuple([[P[i, d_in, d_out] for d_out in depots] for d_in in depots]) for i in jobs[1:-1]]}")
             # Print routes and schedules in time order by machines. 
             for k in machines:
                 print(f"Machine {k}:")
