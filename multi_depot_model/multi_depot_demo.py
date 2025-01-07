@@ -2,7 +2,7 @@ import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 
-def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_sol=True, visualize=False, video=False):
+def multi_depot_demo(length=100, width=100, N=5, D=2, D0=None, M_num=2, A0=None, seed=42, print_sol=True, visualize=False, video=False):
     # Define the region of the strawberry field
     length = length
     width = width
@@ -19,11 +19,11 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
     # Generate random call places and correspoding release times
     seed = seed
     rng = np.random.default_rng(seed)
-    Rt = rng.integers(0, length*N, N) # release times for jobs (for i=0 and i=N+1 could be 0)
+    Rt = rng.integers(0, length*2, N) # release times for jobs (for i=0 and i=N+1 could be 0)
     Rt = np.sort(Rt)
     Rt = np.insert(Rt, 0, 0)  # start job
     Rt = np.append(Rt, 0)  # end job
-    A_k = rng.integers(0, length//5, M_num) # availability times for machines
+    A_k = rng.integers(0, length//5, M_num) if A0 is None else np.array(A0) # availability times for machines
     job_xs = rng.integers(0, length, N) # x coordinates of jobs
     job_xs = np.insert(job_xs, 0, 0)  # start job
     job_xs = np.append(job_xs, length)  # end job
@@ -32,7 +32,7 @@ def multi_depot_demo(length=100, width=100, N=5, D=2, M_num=2, seed=42, print_so
     job_ys = np.append(job_ys, length)  # end job
     depot_xs = np.array([int(_*length/(D+1)) for _ in range(1, D+1)]) # x coordinates of depots
     depot_ys = np.array([0 for _ in range(D)]) # y coordinates of depots
-    D0 = rng.integers(0, D, M_num) # Starting depots for machines
+    D0 = rng.integers(0, D, M_num) if D0 is None else np.array(D0) # Starting depots for machines
 
     loading_duration = 5  # loading duration for each job
     unloading_duration = 5  # unloading duration for each job
