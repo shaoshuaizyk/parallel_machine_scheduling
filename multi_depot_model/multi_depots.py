@@ -65,27 +65,35 @@ def plot_machine_gantt(model, E, v, s, P, machines, jobs, depots, N, T_var):
     plt.tight_layout()
     plt.show()
 
+import matplotlib.pyplot as plt
+import numpy as np
+
 def plot_job_gantt_solution(solution):
     """
-    Plots a job-based Gantt chart with:
-      - A marker for Release Time
-      - A marker for Full Tray Time
-      - A Wait bar from Full Tray Time to machine arrival
-      - A Service bar from arrival to arrival + service duration
+    Plots a job-based Gantt chart:
+      - Skips dummy jobs (0 and N+1).
+      - Clamps the full_tray_time so it does not exceed the job's process time.
+      - Displays:
+         1) Release time (blue marker)
+         2) A bar from [release_t, tray_t] if tray_t > release_t
+         3) Full tray time (green marker)
+         4) A wait segment from [tray_t, arrival_t]
+         5) A service segment from [arrival_t, arrival_t + job_proc_time]
 
     Parameters
     ----------
     solution : dict
-        Must contain:
-          - 'model': Gurobi model
-          - 'v': v[i,k,d] variables
-          - 's': s[i,k,d] variables (the time machine k starts job i from depot d)
-          - 'jobs': list of job indices (0= start dummy, N+1= end dummy)
-          - 'machines': list of machine indices
-          - 'depots': list of depot indices
-          - 'release_times': 1D array or list => release_times[i]
-          - 'full_tray_times': 1D array or list => full_tray_times[i]
-          - 'service_time': optional, or can assume a fixed constant
+        A dictionary returned by your scheduling model, containing:
+          - "model": Gurobi model
+          - "v": v[i,k,d] decision variables
+          - "s": s[i,k,d] decision variables (machine start time for job i)
+          - "jobs": list of all job indices (0..N+1)
+          - "machines": list of machine indices
+          - "depots": list of depot indices
+          - "release_times": 2D array => release_times[i, d]
+          - "full_tray_times": 1D array => full_tray_times[i]
+          - "process_times": 3D array => process_times[i, d, k]
+            (or however you store process time per job/depot/machine)
     """
 
     model          = solution["model"]
@@ -95,21 +103,23 @@ def plot_job_gantt_solution(solution):
     machines       = solution["machines"]
     depots         = solution["depots"]
 
-    release_times  = solution["release_times"]   # shape: (N+2,) or list
-    full_tray_times = solution["full_tray_times"]# shape: (N+2,) or list
+    # In this example, we assume:
+    # release_times[i, d]   -> the release time of job i at depot d
+    # full_tray_times[i]    -> the base tray time (clamped if needed)
+    # process_times[i, d, k]-> the job i's process time given depot d and machine k
 
-    # Optional: if you store an array of service times, or just assume a constant
-    # E.g., service_times = solution.get("service_times", None)
-    # We'll just assume a constant 5.0 here:
-    SERVICE_DURATION = 5.0
+    release_times  = solution["release_times"]    
+    full_tray_times = solution["full_tray_times"]
+    process_times  = solution["process_times"]    
 
-    # Check feasibility
+    # Check feasibility of the model
     if model.SolCount == 0:
         print("No feasible solution found; cannot plot Gantt chart.")
         return
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
+    # Identify the dummy start/end jobs
     dummy_start = 0
     dummy_end   = len(jobs) - 1
 
@@ -121,7 +131,7 @@ def plot_job_gantt_solution(solution):
         if i in [dummy_start, dummy_end]:
             continue
 
-        # Find which (k, d) is assigned
+        # Find the assigned machine k, depot d (i.e. v[i,k,d] == 1)
         assigned_k = None
         assigned_d = None
         for k in machines:
@@ -133,31 +143,60 @@ def plot_job_gantt_solution(solution):
             if assigned_k is not None:
                 break
 
-        # If not assigned, skip
         if assigned_k is None or assigned_d is None:
+            # job i not assigned in a feasible manner
             continue
 
-        # 1) release_time => marker
-        # release_t = release_times[i]
-        release_t = release_times[i-1, assigned_d]  # a single number
+        # (1) Release time for this job i at depot assigned_d
+        #     If your indexing is i-1 for real jobs, adapt as needed.
+        release_t = release_times[i-1, assigned_d]
+
+        # (2) Show a marker at the release time
         ax.scatter(
             [release_t], [i],
             color='blue', marker='|', s=150,
             label="Release Time" if i == jobs[1] else ""
         )
 
-        # 2) full_tray_time => marker
-        tray_t = full_tray_times[i-1]
+        # (3) The process time for job i given (d, k)
+        job_proc_time = process_times[i, assigned_d, assigned_k]
+
+        # (4) Clamp the full tray time so it does not exceed process time
+        #     If your indexing is i-1 for real jobs, adapt as needed.
+        raw_tray_time = full_tray_times[i-1]
+        tray_t = min(raw_tray_time, job_proc_time)
+
+        # (5) If tray_t > release_t, we can plot a bar from [release_t, tray_t]
+        if tray_t > release_t:
+            ax.barh(
+                y=i,
+                left=release_t,
+                width=tray_t - release_t,
+                height=0.4,
+                color='orange',
+                edgecolor='black'
+            )
+            ax.text(
+                (release_t + tray_t)/2.0,
+                i,
+                "R→F",
+                ha='center',
+                va='center',
+                color='black',
+                fontsize=9
+            )
+
+        # Show a marker at the (possibly clamped) full tray time
         ax.scatter(
             [tray_t], [i],
             color='green', marker='|', s=150,
             label="Full Tray Time" if i == jobs[1] else ""
         )
 
-        # 3) arrival_time => from s[i, k, d].X
+        # (6) Machine arrival time from the solution
         arrival_t = s[i, assigned_k, assigned_d].X
 
-        # 4) WAIT time = bar from [tray_t, arrival_t]
+        # (7) Wait segment: from [tray_t, arrival_t]
         if arrival_t > tray_t:
             ax.barh(
                 y=i,
@@ -177,14 +216,14 @@ def plot_job_gantt_solution(solution):
                 fontsize=9
             )
 
-        # 5) SERVICE time = from [arrival_t, arrival_t + SERVICE_DURATION]
+        # (8) Service segment: [arrival_t, arrival_t + job_proc_time]
         service_start  = arrival_t
-        service_finish = service_start + SERVICE_DURATION
+        service_finish = arrival_t + job_proc_time
 
         ax.barh(
             y=i,
             left=service_start,
-            width=SERVICE_DURATION,
+            width=job_proc_time,
             height=0.4,
             color=color_map(i),
             edgecolor='black'
@@ -199,18 +238,19 @@ def plot_job_gantt_solution(solution):
             fontsize=9
         )
 
-    # Formatting
+    # Final cosmetics
     ax.set_yticks(jobs)
     ax.set_yticklabels([f"Job {j}" for j in jobs])
     ax.invert_yaxis()
     ax.set_xlabel("Time")
     ax.set_ylabel("Job Index")
-    ax.set_title("Job Gantt Chart: Release → Full Tray → Wait → Service")
+    ax.set_title("Job Gantt Chart (Skip Dummy, Box Between Release and Tray)")
 
-    # Show legend only if labels are used
+    # Only show legend if labels exist
     ax.legend(loc='best')
     plt.tight_layout()
     plt.show()
+
 
 def visualize_settings_with_full_tray_locations(job_locations, depots, full_tray_times, machine_depots, picker_speed=0.5, 
                                                 num_rows=10, row_width=1.5, row_length=25, headland_space=5):
